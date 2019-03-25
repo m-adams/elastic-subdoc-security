@@ -1,0 +1,172 @@
+# File to track commands for parent-child security
+
+PUT customer_events
+{
+  "mappings": {
+    "_doc": {
+      "properties": {
+        "security_attributes": {
+            "properties": {
+                "level": {"type":"short"},
+                "programs": {"type":"keyword"},
+                "min_programs": {"type":"short"}
+            }
+        },
+        "my_join_field": { 
+          "type": "join",
+          "relations": {
+            "event": "details" 
+          }
+        }
+      }
+    }
+  }
+}
+
+PUT customer_events/_doc/1?refresh
+{
+  "event": "Hopepage hit",
+  "user_id": 1278,
+  "my_join_field": "event"
+}
+
+PUT customer_events/_doc/2?refresh
+{
+  "event": "Checkout",
+  "user_id": 2341,
+  "my_join_field": "event"
+}
+
+PUT customer_events/_doc/3?routing=1&refresh
+{
+  "dept": "Marketing",
+  "first_name": "John",
+  "last_name": "Smith",
+  "user_category": "High Net Worth",
+  "my_join_field": {
+    "name": "details", 
+    "parent": "1" 
+  },
+  "security_attributes": {
+    "level": 2,
+    "programs": ["alpha", "beta"],
+    "min_programs": 2
+  }
+}
+
+PUT customer_events/_doc/4?routing=1&refresh
+{
+  "dept": "Finance",
+  "user_credit_rating": "A",
+  "my_join_field": {
+    "name": "details",
+    "parent": "1"
+  },
+  "security_attributes": {
+    "level": 2,
+    "programs": ["alpha", "beta"],
+    "min_programs": 2
+  }
+}
+
+PUT customer_events/_doc/5?routing=1&refresh
+{
+  "dept": "Marketing",
+  "first_name": "Mark",
+  "last_name": "Baker",
+  "user_category": "Low Net Worth",
+  "my_join_field": {
+    "name": "details", 
+    "parent": "2" 
+  },
+  "security_attributes": {
+    "level": 2,
+    "programs": ["alpha", "beta"],
+    "min_programs": 2
+  }
+}
+
+PUT customer_events/_doc/6?routing=1&refresh
+{
+  "dept": "Finance",
+  "user_credit_rating": "B",
+  "my_join_field": {
+    "name": "details",
+    "parent": "2"
+  },
+  "security_attributes": {
+    "level": 3,
+    "programs": ["alpha", "charlie"],
+    "min_programs": 2
+  }
+}
+
+PUT _xpack/security/role/my_policy
+{    
+    "indices": [
+    {
+        "names": ["customer_events"],
+        "privileges": ["read"],
+        "query": {
+            "template": {
+                "source": "{\"bool\": {\"filter\": [{\"range\": {\"security_attributes.level\": {\"lte\": \"{{_user.metadata.level}}\"}}},{\"terms_set\": {\"security_attributes.programs\": {\"terms\": {{#toJson}}_user.metadata.programs{{/toJson}},\"minimum_should_match_field\": \"security_attributes.min_programs\"}}}, {\"script\": {\"script\": {\"inline\": \"!LocalDateTime.ofInstant(Calendar.getInstance().toInstant(), ZoneId.systemDefault()).isAfter(LocalDateTime.parse('{{_user.metadata.certification_date}}').plusYears(1))\"}}}]}}"
+            } 
+        }
+    }]
+}
+PUT _xpack/security/user/jack_black
+{
+    "username": "jack_black",
+    "password": "testtest",
+    "roles": ["my_policy","kibana_user"],
+    "full_name": "Jack Black",
+    "email": "jb@tenaciousd.com",
+    "metadata": {
+        "programs": ["alpha", "beta"],
+        "level": 2,
+        "certification_date": "2018-01-02T00:00:00"
+    }
+}
+PUT _xpack/security/user/barry_white
+{
+    "username": "barry_white",
+    "password": "testtest",
+    "roles": ["my_policy","kibana_user"],
+    "full_name": "Barry White",
+    "email": "bw@cantgetenough.com",
+    "metadata": {
+        "programs": ["alpha", "beta", "charlie"],
+        "level": 2,
+        "certification_date": "2018-01-02T00:00:00"
+    }
+}
+PUT _xpack/security/user/earl_grey
+{
+    "username": "earl_grey",
+    "password": "testtest",
+    "roles": ["my_policy","kibana_user"],
+    "full_name": "Earl Grey",
+    "email": "eg@hot.com",
+    "metadata": {
+        "programs": ["charlie"],
+        "level": 3,
+        "certification_date": "2018-01-02T00:00:00"
+    }
+}
+
+GET /customer_events/_search
+
+GET customer_events/_search
+{
+    "query": {
+        "has_child" : {
+            "type" : "details",
+            "query" : {
+                "match": {
+                  "user_credit_rating.keyword": "A"
+                }
+            },
+      "inner_hits": {}
+        }
+    }
+}
